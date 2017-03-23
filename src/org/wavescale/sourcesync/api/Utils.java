@@ -20,6 +20,44 @@ import java.io.IOException;
  */
 public class Utils {
 
+
+    /**
+     * Solution by Burn L. posted in:
+     * http://stackoverflow.com/questions/204784/how-to-construct-a-relative-path-in-java-from-two-absolute-paths-or-urls/1290311#1290311
+     *
+     * Constructs a relative path from path1 to path2, where both paths have to own a common base path e.g.:
+     *
+     * <example><code><pre>
+     * File p1 = new File("/usr/local/bin");
+     * File p2 = new File("/usr/bin");
+     * String rel = FileTools.getRelativePath(p1, p2);
+     * // rel is "/../../usr/bin";
+     *
+     * File f = new File(p.toString());
+     * // f is /usr/local/bin/../../usr/bin
+     *
+     * // and f really exists
+     * assertTrue(f.exists());
+     *
+     * </pre></code></example>
+     *
+     * @param path1 Build the relative path from this to path2
+     * @param path2 The target within the build path
+     * @return The relative path from path1 to path2
+     * @throws IOException
+     */
+    public static String getRelativePath(File path1, File path2) throws IOException {
+        File parent = path1.getParentFile();
+        if (parent == null) throw new IOException("No common directory");
+        String bpath = path1.getCanonicalPath();
+        String fpath = path2.getCanonicalPath();
+        if (fpath.startsWith(bpath))
+            return fpath.substring(bpath.length() + 1);
+        else
+            return (".." + File.separator + getRelativePath(parent, path2));
+    }
+
+
     /**
      * Checks if a given filename can be uploaded or not.
      *

@@ -19,6 +19,7 @@ import org.wavescale.sourcesync.logger.BalloonLogger;
 import org.wavescale.sourcesync.logger.EventDataLogger;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Semaphore;
 
@@ -64,11 +65,46 @@ public class ActionSelectedFilesToRemote extends AnAction {
         final SynchronizationQueue synchronizationQueue = new SynchronizationQueue(e.getProject(), connectionConfiguration, allowed_sessions);
         synchronizationQueue.startCountingTo(virtualFiles.length);
         final BlockingQueue<FileSynchronizer> queue = synchronizationQueue.getSyncQueue();
-        final String projectName = e.getProject().getName();
+        //final String projectName = e.getProject().getName();
         for (VirtualFile virtualFile : virtualFiles) {
             if (virtualFile != null && new File(virtualFile.getPath()).isFile()) {
                 if (Utils.canBeUploaded(virtualFile.getName(), connectionConfiguration.getExcludedFiles())) {
-                    final File relativeFile = new File(virtualFile.getPath().replaceFirst(Utils.getUnixPath(currentProject.getBasePath()), ""));
+                    String virtualFilePath = virtualFile.getPath();
+                    String basePath = currentProject.getBasePath();
+
+                    //EventDataLogger.logInfo("virtualFilePath:" + virtualFilePath, e.getProject());
+                    //EventDataLogger.logInfo("basePath:" + basePath, e.getProject());
+                    final File relativeFile;
+
+                    if (!virtualFilePath.contains(basePath))
+                    {
+                        //EventDataLogger.logInfo("External file", e.getProject());
+                        // The selected VirtualFile resides external project content-source-directory
+                        try {
+                            // Get the relative Path from project directory to external-project file
+                            relativeFile = new File(Utils.getRelativePath(
+                                new File(currentProject.getBaseDir().getPath()),
+                                new File(virtualFilePath)
+                            ));
+                        } catch (IOException e1) {
+                            EventDataLogger.logError(
+                                "Could not get relative path from the projects-directory to the external source-root-file",
+                                e.getProject()
+                            );
+                            synchronizationQueue.count();
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        //EventDataLogger.logInfo("Internal file", e.getProject());
+                        // The selected VirtualFile resides inside the project-directory
+                        // Get the the file path below project dir
+                        relativeFile = new File(virtualFilePath.replaceFirst(Utils.getUnixPath(basePath), ""));
+                    }
+
+                    //EventDataLogger.logInfo("Relative file path: "+ relativeFile.getAbsolutePath(), e.getProject());
+                    //final File relativeFile = new File(virtualFile.getPath().replaceFirst(Utils.getUnixPath(currentProject.getBasePath()), ""));
 
                     ProgressManager.getInstance().run(new Task.Backgroundable(e.getProject(), "Uploading", false) {
                         @Override
@@ -82,8 +118,27 @@ public class ActionSelectedFilesToRemote extends AnAction {
                                     fileSynchronizer.connect();
                                     // so final destination will look like this:
                                     // root_home/ + project_relative_path_to_file/
-                                    fileSynchronizer.syncFile(Utils.getUnixPath(relativeFile.getPath()),
-                                            Utils.buildUnixPath(relativeFile.getParent().substring(1) /**Something like src/org/.../package**/));
+                                    EventDataLogger.logInfo(
+                                        String.format(
+                                            "syncFile(%s, %s) relativeFile.getParent()=%s",
+                                            Utils.getUnixPath(relativeFile.getPath()),
+                                            Utils.buildUnixPath(relativeFile.getParent().substring(1)),
+                                            relativeFile.getParent()
+                                        ), e.getProject()
+                                    );
+
+                                    // Get files project-parent-directory e.g. src/org/.../package
+                                    String fileProjectRelativeDir = Utils.buildUnixPath(relativeFile.getParent().substring(1));
+
+                                    // If the file resides at project root sync to remote root
+                                    if (fileProjectRelativeDir == null ||
+                                        fileProjectRelativeDir.trim().length() == 0)
+                                            fileProjectRelativeDir = "/";
+
+                                    fileSynchronizer.syncFile(
+                                        Utils.getUnixPath(relativeFile.getPath()),
+                                        fileProjectRelativeDir
+                                    );
                                 }
                                 queue.put(fileSynchronizer);
                                 synchronizationQueue.count();
